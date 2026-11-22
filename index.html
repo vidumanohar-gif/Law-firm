@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Posting Desk — Advocate Sign-in</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef0f2;--pan:#fff;--ink:#16202c;--mut:#5d6b7a;--line:#d8dde3;--pri:#1f4e5f;--brass:#a9822f;--red:#a63d2f;--ok:#2e7d5b}
+@media(prefers-color-scheme:dark){:root{--bg:#10161d;--pan:#18212b;--ink:#e6ebf0;--mut:#93a1b0;--line:#2b3744;--pri:#6fb0c4;--red:#e07d6e;--ok:#5fc194}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Instrument Sans",system-ui,sans-serif}
+h1,h2,h3{font-family:Newsreader,Georgia,serif;margin:0 0 6px}main{max-width:480px;margin:0 auto;padding:24px 16px 60px}
+.brand{font:600 24px Newsreader,serif;margin:8px 0 18px}.brand small{display:block;font:14px "Instrument Sans";color:var(--mut)}
+.card{background:var(--pan);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+label{display:block;font-size:14px;color:var(--mut);margin:10px 0 4px}
+input,select{width:100%;font:inherit;color:var(--ink);background:var(--pan);border:1px solid var(--line);border-radius:8px;padding:11px}
+input:focus,button:focus{outline:2px solid var(--brass);outline-offset:1px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--pan);color:var(--ink);padding:11px 16px}
+button.p{background:var(--pri);border-color:var(--pri);color:#fff;width:100%;margin-top:14px}button.p:disabled{opacity:.6}
+button.l{border:0;background:none;color:var(--pri);padding:6px 0;text-decoration:underline}
+.tabs{display:flex;gap:6px;margin-bottom:12px}.tabs button{flex:1}.tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.msg{padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:14px}.msg.e{background:#f7e4e0;color:#8a2c1f}.msg.o{background:#e0f1e9;color:#1d5c40}
+.mut{color:var(--mut);font-size:14px}.av{width:84px;height:84px;border-radius:50%;background:var(--pri);color:#fff;display:flex;align-items:center;justify-content:center;font:600 30px Newsreader,serif;object-fit:cover;margin-bottom:8px}
+.ph{display:flex;gap:8px}.ph select{width:92px}.otp{letter-spacing:.5em;text-align:center;font-size:22px}
+</style></head><body><main id="app"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== STEP A: paste your two Supabase values here (see SETUP.md) ===== */
+const SUPABASE_URL = 'https://qbnmynkndkudnpeedyam.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_nbIPAF9vJfVOQaZzHMdSPw_UO71XobC';
+/* ====================================================================== */
+const app = document.getElementById('app');
+const fatal = m => { let b = document.getElementById('fatal'); if (!b) { b = document.createElement('div'); b.id = 'fatal'; b.className = 'msg e'; b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9;margin:0;border-radius:0'; document.body.prepend(b) } b.textContent = 'Error: ' + m };
+window.addEventListener('error', e => fatal(e.message));
+window.addEventListener('unhandledrejection', e => fatal((e.reason && e.reason.message) || e.reason));
+const CONFIG_OK = /^https:\/\/.+/.test(SUPABASE_URL) && !SUPABASE_KEY.startsWith('PASTE') && SUPABASE_KEY.length > 20;
+let sb = null;
+if (CONFIG_OK) { if (window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); else fatal('Could not load the Supabase library. Check your internet connection.') }
+const S = {screen:'auth', tab:'login', phone:'', mode:'signup', user:null, profile:null, msg:null, cool:0};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const norm = v => { v = String(v).replace(/[\s-]/g, ''); if (/^\+\d{10,15}$/.test(v)) return v; if (/^\d{10}$/.test(v)) return '+91' + v; if (/^91\d{10}$/.test(v)) return '+' + v; return null };
+const err = e => { const m = (e && e.message || '').toLowerCase();
+  if (m.includes('invalid login')) return 'Phone number or password is incorrect.';
+  if (m.includes('token') && (m.includes('expired') || m.includes('invalid'))) return 'That OTP is wrong or has expired. Request a new one.';
+  if (m.includes('rate') || m.includes('seconds')) return 'Please wait a minute before requesting another OTP.';
+  if (m.includes('signups not allowed') || m.includes('not found')) return 'No account found for this number. Use Sign up.';
+  if (m.includes('provider') || m.includes('sms')) return 'The OTP could not be sent. Check the SMS setup in SETUP.md.';
+  return e && e.message ? e.message : 'Something went wrong. Please try again.' };
+const note = () => S.msg ? `<div class="msg ${S.msg[0]}">${esc(S.msg[1])}</div>` : '';
+const go = (screen, msg) => { S.screen = screen; S.msg = msg || null; draw() };
+const phoneField = (name = 'phone', v = '') => `<label>Mobile number</label><input name="${name}" type="tel" inputmode="tel" autocomplete="tel" placeholder="98765 43210 or +91…" value="${esc(v)}" required><div class="mut">10-digit Indian numbers are treated as +91.</div>`;
+const initials = n => (n || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+const avatar = p => p.photo_url ? `<img class="av" src="${esc(p.photo_url)}" alt="Profile photo">` : `<div class="av">${esc(initials(p.full_name))}</div>`;
+
+function draw() {
+  const V = {
+  auth: () => `<div class="brand">Posting Desk<small>Case calendar and client reminders for advocates</small></div><div class="card">${note()}
+    <div class="tabs"><button data-a="tab" data-v="login" class="${S.tab === 'login' ? 'on' : ''}">Log in</button><button data-a="tab" data-v="signup" class="${S.tab === 'signup' ? 'on' : ''}">Sign up</button></div>
+    ${S.tab === 'login' ? `<form data-f="login">${phoneField()}<label>Password</label><input name="password" type="password" autocomplete="current-password" required><button class="p">Log in</button><p><button type="button" class="l" data-a="forgot">Forgot password?</button></p></form>`
+    : `<form data-f="signup"><p class="mut">We will send a 6-digit OTP to verify your number. Then you set your profile and password.</p>${phoneField()}<button class="p">Send OTP</button></form>`}</div>`,
+  forgot: () => `<div class="brand">Reset password</div><div class="card">${note()}<form data-f="forgot"><p class="mut">Enter your registered number. We will send an OTP.</p>${phoneField('phone', S.phone)}<button class="p">Send OTP</button></form><button class="l" data-a="back">Back to log in</button></div>`,
+  otp: () => `<div class="brand">Enter OTP</div><div class="card">${note()}<form data-f="otp"><p class="mut">A 6-digit code was sent to ${esc(S.phone)}.</p><input class="otp" name="token" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required><button class="p">Verify</button></form><p><button class="l" data-a="resend" id="rs">Resend OTP</button> · <button class="l" data-a="back">Change number</button></p></div>`,
+  setup: () => `<div class="brand">Set up your profile<small>One-time step. You can edit everything later.</small></div><div class="card">${note()}<form data-f="setup"><label>Full name</label><input name="full_name" autocomplete="name" required>
+    <label>Enrolment number</label><input name="enrolment_no" placeholder="e.g. K/123/2026"><label>Bar association</label><input name="bar_association"><label>Email (optional)</label><input name="email" type="email">
+    <label>Create password (8+ characters)</label><input name="pw" type="password" minlength="8" autocomplete="new-password" required><label>Confirm password</label><input name="pw2" type="password" minlength="8" autocomplete="new-password" required><button class="p">Save and continue</button></form></div>`,
+  reset: () => `<div class="brand">Choose a new password</div><div class="card">${note()}<form data-f="reset"><label>New password (8+ characters)</label><input name="pw" type="password" minlength="8" autocomplete="new-password" required><label>Confirm password</label><input name="pw2" type="password" minlength="8" autocomplete="new-password" required><button class="p">Save password</button></form></div>`,
+  home: () => { const p = S.profile; return `<div class="brand">Posting Desk<small>${esc(p.phone)}</small></div>${note()}
+    <div class="card">${avatar(p)}<h2>${esc(p.full_name)}</h2><div class="mut">${esc(p.enrolment_no || 'No enrolment number added')} ${p.bar_association ? '· ' + esc(p.bar_association) : ''}</div>
+    <p class="mut">Your account is ready. Case calendar and reminders arrive in Stage 3.</p></div>
+    <div class="card"><h3>Profile photo</h3><input type="file" id="ph" accept="image/jpeg,image/png,image/webp"><div class="mut">JPG, PNG or WebP, up to 2 MB.</div></div>
+    <div class="card"><h3>Edit profile</h3><form data-f="edit"><label>Full name</label><input name="full_name" value="${esc(p.full_name)}" required><label>Enrolment number</label><input name="enrolment_no" value="${esc(p.enrolment_no)}"><label>Bar association</label><input name="bar_association" value="${esc(p.bar_association)}"><label>Email</label><input name="email" type="email" value="${esc(p.email)}"><button class="p">Save changes</button></form></div>
+    <div class="card"><h3>Change password</h3><form data-f="chpw"><label>Current password</label><input name="cur" type="password" autocomplete="current-password" required><label>New password (8+ characters)</label><input name="pw" type="password" minlength="8" autocomplete="new-password" required><button class="p">Change password</button></form></div>
+    <div class="card"><h3>Change mobile number</h3><form data-f="chph">${phoneField('phone')}<button class="p">Send OTP to new number</button></form></div>
+    <button data-a="logout" style="width:100%">Log out</button>` }
+  };
+  app.innerHTML = V[S.screen]();
+  if (S.screen === 'otp') tickCool();
+}
+function tickCool() { const b = document.getElementById('rs'); if (!b) return; const left = Math.ceil((S.cool - Date.now()) / 1000);
+  b.disabled = left > 0; b.textContent = left > 0 ? `Resend OTP in ${left}s` : 'Resend OTP'; if (left > 0) setTimeout(tickCool, 500) }
+async function sendOtp(phone, create) { S.cool = Date.now() + 60000; return sb.auth.signInWithOtp({phone, options: {shouldCreateUser: create}}) }
+async function route() {
+  const {data: {session}} = await sb.auth.getSession();
+  if (!session) return go('auth');
+  S.user = session.user;
+  const {data: p, error} = await sb.from('profiles').select('*').eq('id', S.user.id).single();
+  if (error || !p) return go('auth', ['e', 'Profile could not be loaded. Please log in again.']);
+  if (p.status === 'suspended') { await sb.auth.signOut(); return go('auth', ['e', 'This account has been suspended. Please contact the administrator.']) }
+  S.profile = p;
+  go(S.mode === 'reset' ? 'reset' : p.onboarded ? 'home' : 'setup');
+}
+const busy = (f, on) => f.querySelectorAll('button').forEach(b => b.disabled = on);
+const H = {
+  async login(d) { const phone = norm(d.get('phone')); if (!phone) return go('auth', ['e', 'Enter a valid mobile number.']);
+    const {error} = await sb.auth.signInWithPassword({phone, password: d.get('password')}); if (error) return go('auth', ['e', err(error)]); S.mode = 'login'; route() },
+  async signup(d) { const phone = norm(d.get('phone')); if (!phone) return go('auth', ['e', 'Enter a valid mobile number.']);
+    S.phone = phone; S.mode = 'signup'; const {error} = await sendOtp(phone, true); error ? go('auth', ['e', err(error)]) : go('otp', ['o', 'OTP sent.']) },
+  async forgot(d) { const phone = norm(d.get('phone')); if (!phone) return go('forgot', ['e', 'Enter a valid mobile number.']);
+    S.phone = phone; S.mode = 'reset'; const {error} = await sendOtp(phone, false); error ? go('forgot', ['e', err(error)]) : go('otp', ['o', 'OTP sent.']) },
+  async otp(d) { const type = S.mode === 'change' ? 'phone_change' : 'sms'; const {error} = await sb.auth.verifyOtp({phone: S.phone, token: d.get('token').trim(), type});
+    if (error) return go('otp', ['e', err(error)]); if (S.mode === 'change') { S.mode = 'login'; await route(); return go('home', ['o', 'Mobile number updated.']) } route() },
+  async setup(d) { if (d.get('pw') !== d.get('pw2')) return go('setup', ['e', 'The two passwords do not match.']);
+    let r = await sb.auth.updateUser({password: d.get('pw')}); if (r.error) return go('setup', ['e', err(r.error)]);
+    r = await sb.from('profiles').update({full_name: d.get('full_name').trim(), enrolment_no: d.get('enrolment_no').trim(), bar_association: d.get('bar_association').trim(), email: d.get('email').trim(), onboarded: true}).eq('id', S.user.id);
+    if (r.error) return go('setup', ['e', err(r.error)]); S.mode = 'login'; await route(); go('home', ['o', 'Profile saved. Welcome.']) },
+  async reset(d) { if (d.get('pw') !== d.get('pw2')) return go('reset', ['e', 'The two passwords do not match.']);
+    const {error} = await sb.auth.updateUser({password: d.get('pw')}); if (error) return go('reset', ['e', err(error)]); S.mode = 'login'; await route(); go(S.profile.onboarded ? 'home' : 'setup', ['o', 'Password updated.']) },
+  async edit(d) { const {error} = await sb.from('profiles').update({full_name: d.get('full_name').trim(), enrolment_no: d.get('enrolment_no').trim(), bar_association: d.get('bar_association').trim(), email: d.get('email').trim()}).eq('id', S.user.id);
+    if (error) return go('home', ['e', err(error)]); await route(); go('home', ['o', 'Profile updated.']) },
+  async chpw(d) { const t = await sb.auth.signInWithPassword({phone: S.profile.phone.startsWith('+') ? S.profile.phone : '+' + S.profile.phone, password: d.get('cur')});
+    if (t.error) return go('home', ['e', 'Current password is incorrect.']); const {error} = await sb.auth.updateUser({password: d.get('pw')}); go('home', error ? ['e', err(error)] : ['o', 'Password changed.']) },
+  async chph(d) { const phone = norm(d.get('phone')); if (!phone) return go('home', ['e', 'Enter a valid mobile number.']);
+    S.phone = phone; S.mode = 'change'; S.cool = Date.now() + 60000; const {error} = await sb.auth.updateUser({phone}); error ? go('home', ['e', err(error)]) : go('otp', ['o', 'OTP sent to the new number.']) }
+};
+const A = {
+  tab: t => { S.tab = t.dataset.v; S.msg = null; draw() }, forgot: () => go('forgot'), back: () => { S.mode = 'login'; S.user ? route() : go('auth') },
+  async resend() { const {error} = S.mode === 'change' ? await sb.auth.updateUser({phone: S.phone}) : await sendOtp(S.phone, S.mode === 'signup'); S.cool = Date.now() + 60000; go('otp', error ? ['e', err(error)] : ['o', 'New OTP sent.']) },
+  async logout() { await sb.auth.signOut(); S.profile = S.user = null; S.mode = 'login'; go('auth', ['o', 'You have been logged out.']) }
+};
+app.addEventListener('submit', async e => { e.preventDefault(); const f = e.target; busy(f, true); try { await H[f.dataset.f](new FormData(f)) } catch (x) { go(S.screen, ['e', err(x)]) } });
+app.addEventListener('click', e => { const t = e.target.closest('[data-a]'); if (t) A[t.dataset.a](t) });
+app.addEventListener('change', async e => { if (e.target.id !== 'ph') return; const file = e.target.files[0]; if (!file) return;
+  if (file.size > 2097152 || !/^image\/(jpeg|png|webp)$/.test(file.type)) return go('home', ['e', 'Choose a JPG, PNG or WebP image under 2 MB.']);
+  const path = `${S.user.id}/avatar`; const up = await sb.storage.from('avatars').upload(path, file, {upsert: true, contentType: file.type});
+  if (up.error) return go('home', ['e', err(up.error)]); const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
+  const r = await sb.from('profiles').update({photo_url: url}).eq('id', S.user.id); if (r.error) return go('home', ['e', err(r.error)]); await route(); go('home', ['o', 'Photo updated.']) });
+if (!CONFIG_OK) app.innerHTML = '<div class="card"><h3>Setup needed</h3><p>Open <b>index.html</b> and paste your Supabase Project URL (starts with https://) and your anon / publishable key at the top. See SETUP.md.</p></div>';
+else if (sb) { draw(); route() }
+</script></body></html>
